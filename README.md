@@ -223,6 +223,17 @@ CF WS 还需要域名后台「网络」里的 WebSockets 开关处于开启状�
 
 选 Global API Key 时，输入登录邮箱和 Key。Key 在控制台右上角头像 → 设置 → API 凭据 → API 密钥。Global Key 可以管理整个账号。两种凭据都保存在 VPS 的 `/etc/dun/cf.json`，供后台续证和管理解析使用。原先用 Key 的安装会继续使用已保存的凭据，要换 Token 可用菜单 18。
 
+**验证 Cloudflare 凭据失败？**
+
+dun 会把 Cloudflare 给的具体原因和改法一起打出来。常见的几种：
+
+- `6103 Invalid format for X-Auth-Key header`：Key 的格式不对。Global API Key 是 37 位，只有数字和 a 到 f。复制的其实是 API Token 的话，凭据类型选 2
+- `6102 Invalid format for X-Auth-Email header`：邮箱格式不对，填 Cloudflare 的登录邮箱
+- `9103 Unknown X-Auth-Key or X-Auth-Email`：邮箱和 Key 对不上。邮箱要填这个账号的登录邮箱，Key 点「查看」后完整复制
+- `9109`、`10000`、`10001`：Token 无效，或者缺权限。照上面的表补权限，区域资源要包含节点用的域名。用 Global API Key 碰到 10001，确认域名就在这个登录邮箱的账号下面
+
+类型选错了也不要紧：Global API Key 那一栏贴了 API Token，dun 认出来会直接按 Token 用；Token 那一栏贴了 37 位的 Key，会再问一次登录邮箱。
+
 **会动我域名的哪些设置？**
 
 只加这几样：
@@ -232,6 +243,10 @@ CF WS 还需要域名后台「网络」里的 WebSockets 开关处于开启状�
 - CF WS 那个子域名一条配置规则，单独把 SSL 设成 Flexible，安全级别调低，免得订阅和连接被拦
 
 整个域名的 SSL 模式不改，你原来的规则也不碰。子域名要是已经有解析，dun 会先问你，覆盖前会备份，卸载时还原。
+
+**会动我机器上的防火墙吗？**
+
+只放行节点用到的端口。ufw、firewalld 开着，就交给它们放行。iptables 默认拦截的机器，比如甲骨文的镜像，dun 只在拦截规则前面插自己那几条，带 `dun-allow` 标记，IPv4 和 IPv6 都处理。开机规则文件 `/etc/iptables/rules.v4`、`rules.v6` 里也只加这几行，写之前用 iptables-restore 校验一遍，第一次改动前备份成 `rules.v4.dun.bak`。你原来的规则一条都不动。
 
 **443 被占了怎么办？**
 
@@ -284,7 +299,7 @@ sing-box 官方客户端、Clash Verge Rev、FlClash 这类 mihomo 内核的客�
 
 **怎么卸载干净？**
 
-输入 `dun uninstall`。dun 加的解析、CF 规则、证书、WARP 账号、sing-box 和它自己全删掉，BBR 设置会保留。
+输入 `dun uninstall`。dun 加的解析、CF 规则、证书、WARP 账号、sing-box 和它自己全删掉，iptables 里带 `dun-allow` 标记的放行规则也一起删，开机规则文件还原后备份会删掉。BBR 设置会保留，ufw、firewalld 里放行的端口不动，不用了可以自己删。
 
 ## 自己编译
 
