@@ -79,9 +79,11 @@ func showLinks(st *State) {
 	}
 	if st.Hy2 != nil {
 		l := linkHy2(st, base+"-Hy2")
-		b.WriteString("【Hysteria2】UDP，gecko 混淆 + 端口跳跃，线路差的机器用\n" + l + "\n")
 		if st.Hy2.HopStart > 0 {
+			b.WriteString("【Hysteria2】UDP，gecko 混淆 + 端口跳跃，线路差的机器用\n" + l + "\n")
 			b.WriteString(fmt.Sprintf("端口跳跃 %d-%d，订阅里已经带上\n", st.Hy2.HopStart, st.Hy2.HopEnd))
+		} else {
+			b.WriteString("【Hysteria2】UDP，gecko 混淆，单端口，线路差的机器用\n" + l + "\n")
 		}
 		b.WriteString(hy2ClientHint + "\n")
 		b.WriteString("\n")

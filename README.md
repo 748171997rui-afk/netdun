@@ -10,7 +10,7 @@ dun 是一个 Go 写的单文件程序。节点由官方 sing-box 跑，伪装�
 
 准备三样东西：
 
-- 一台 VPS，root 登录。带 systemd 的 Linux 都行，比如 Debian、Ubuntu、CentOS、Alma、Rocky，amd64 和 arm64 都支持
+- 一台 VPS，root 登录。Debian、Ubuntu、CentOS、Alma、Rocky 这些带 systemd 的都行，用 OpenRC 的 Alpine 也行，amd64 和 arm64 都支持
 - 一个已经接入 Cloudflare 的域名
 - 一份 Cloudflare 凭据。可以用登录邮箱加 Global API Key，也可以只填一个限域名的 API Token。
 
@@ -18,6 +18,12 @@ dun 是一个 Go 写的单文件程序。节点由官方 sing-box 跑，伪装�
 
 ```bash
 bash <(curl -fsSL https://github.com/byJoey/dun/releases/latest/download/install.sh)
+```
+
+Alpine 默认没有 bash 和 curl，换成这一条：
+
+```sh
+wget -qO- https://github.com/byJoey/dun/releases/latest/download/install.sh | sh
 ```
 
 菜单里选 `4` 三个一起装。中间会让你选 Cloudflare 凭据类型和域名，其他问题一路回车用默认值就行。装完屏幕上会打出订阅地址，复制进客户端就能用。
@@ -174,7 +180,7 @@ dun route rm 2
 
 菜单第 5 项单独装，不在「三个一起装」里。走 UDP，丢包多、晚高峰拥堵的线路上明显比 TCP 协议快，适合线路不好的机器。
 
-默认就是最抗封锁的配置：gecko 混淆、端口跳跃，参数每台机器随机，不用自己选。客户端要求 mihomo 1.19.34、sing-box 1.14 以上，老版本不认 gecko。云厂商的安全组记得放行 UDP。
+默认就是最抗封锁的配置：gecko 混淆、端口跳跃，参数每台机器随机，不用自己选。端口跳跃要用 iptables 转发，机器上没有会自动装；容器不让加转发规则的，就走单端口。客户端要求 mihomo 1.19.34、sing-box 1.14 以上，老版本不认 gecko。云厂商的安全组记得放行 UDP。
 
 **v2rayNG 2.3.15** 导入 Hy2 链接时会使用 salamander，和 dun 默认的 gecko 对不上，握手会失败。这版可换用支持 gecko 的客户端。
 
@@ -280,6 +286,10 @@ sing-box 官方客户端、Clash Verge Rev、FlClash 这类 mihomo 内核的客�
 如果服务商只给几个映射端口，选 2，再填分配给你的外网端口。即使内外端口号相同也选 2，Hy2 会走单端口。
 
 旧版已经把甲骨文的 Hy2 装成单端口的，升级后进菜单 10，选 Hysteria2，保留监听端口，端口方式选 1。放行显示的 UDP 范围后刷新订阅即可。
+
+**Alpine 能用吗？**
+
+能。一键命令用上面 `wget … | sh` 那条。服务交给 OpenRC 管，开机自启。日志在 `/var/log/dun-sb.log` 和 `/var/log/dun.log`，超过 20MB 会自动只留最后 2MB，不会把小鸡的硬盘写满。Hy2 端口跳跃要的 iptables，dun 会用 apk 自己装上；LXC 小鸡不给加转发规则的，Hy2 自动改成单端口。
 
 **证书会过期吗？**
 

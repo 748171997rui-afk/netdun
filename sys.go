@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"fmt"
@@ -123,6 +124,7 @@ WantedBy=multi-user.target
 		return
 	}
 	if initSys == "openrc" {
+		// 只排在 net 后面，不用 need net：LXC 这类容器没有 networking 服务，need 会把它拉起来，起不来就连累节点
 		tpl := `#!/sbin/openrc-run
 name="%s"
 command="%s"
@@ -131,7 +133,7 @@ supervisor=supervise-daemon
 respawn_delay=3
 output_log="/var/log/%s.log"
 error_log="/var/log/%s.log"
-depend() { need net; after firewall; }
+depend() { after net firewall; }
 `
 		os.WriteFile("/etc/init.d/"+svcBox, []byte(fmt.Sprintf(tpl, svcBox, sbBin, "run -c "+sbConf, svcBox, svcBox)), 0755)
 		os.WriteFile("/etc/init.d/"+svcWeb, []byte(fmt.Sprintf(tpl, svcWeb, selfPath, "serve", svcWeb, svcWeb)), 0755)
@@ -191,6 +193,42 @@ func svcLog(n int, follow bool) {
 		args = append(args, "-f")
 	}
 	runTTY("tail", append(args, "/var/log/"+svcBox+".log", "/var/log/"+svcWeb+".log")...)
+}
+
+// OpenRC 下两个服务的输出直接写 /var/log，没人轮转。超过 20MB 就只留最后 2MB，免得把小鸡的硬盘写满
+func trimLogs() {
+	for _, s := range []string{svcBox, svcWeb} {
+		trimLog("/var/log/"+s+".log", 20<<20, 2<<20)
+	}
+}
+
+func logTrimLoop() {
+	for {
+		time.Sleep(6 * time.Hour)
+		trimLogs()
+	}
+}
+
+// 原地截断，supervise-daemon 是追加写的，截完接着往末尾写
+func trimLog(p string, max, keep int64) {
+	f, err := os.OpenFile(p, os.O_RDWR, 0)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || fi.Size() <= max {
+		return
+	}
+	buf := make([]byte, keep)
+	n, _ := f.ReadAt(buf, fi.Size()-keep)
+	buf = buf[:n]
+	if i := bytes.IndexByte(buf, '\n'); i >= 0 {
+		buf = buf[i+1:]
+	}
+	if f.Truncate(0) == nil {
+		f.WriteAt(buf, 0)
+	}
 }
 
 // ── 端口 ─────────────────────────────────────────────
