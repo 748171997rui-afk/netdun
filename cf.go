@@ -243,7 +243,9 @@ func cfPrompt(st *State) *CF {
 			info("安装 CF WS 再加 Zone → Origin Rules → Edit 和 Zone → Config Rules → Edit")
 			c.Token = askSecret("API Token（输入时不显示）")
 		} else {
-			info("Global API Key 在 CF 后台右上角头像 → 设置 → API 凭据 → API 密钥")
+			info("登录 Cloudflare 控制台 https://dash.cloudflare.com/，点右上角头像，再点「设置」。")
+			info("在左栏的 User settings 下展开「API 凭据」，点「API 密钥」。")
+			info("找到 Global API key 这一行，点右边的「查看」。")
 			c.Email = ask("CF 登录邮箱", "")
 			c.Key = askSecret("Global API Key（输入时不显示）")
 		}
