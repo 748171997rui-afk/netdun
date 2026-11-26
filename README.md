@@ -12,7 +12,7 @@ dun 是一个 Go 写的单文件程序。节点由官方 sing-box 跑，伪装�
 
 - 一台 VPS，root 登录。带 systemd 的 Linux 都行，比如 Debian、Ubuntu、CentOS、Alma、Rocky，amd64 和 arm64 都支持
 - 一个已经接入 Cloudflare 的域名
-- Cloudflare 的 Global API Key。在 CF 后台点右上角头像，进「我的个人资料」→「API 令牌」，Global API Key 那一栏点「查看」
+- 一份 Cloudflare 凭据。可以用登录邮箱加 Global API Key，也可以只填一个限域名的 API Token。
 
 登录 VPS，执行：
 
@@ -20,7 +20,7 @@ dun 是一个 Go 写的单文件程序。节点由官方 sing-box 跑，伪装�
 bash <(curl -fsSL https://github.com/byJoey/dun/releases/latest/download/install.sh)
 ```
 
-菜单里选 `4` 三个一起装。中间会问 CF 邮箱和 Key，让你选一个域名，其他问题一路回车用默认值就行。装完屏幕上会打出订阅地址，复制进客户端就能用。
+菜单里选 `4` 三个一起装。中间会让你选 Cloudflare 凭据类型和域名，其他问题一路回车用默认值就行。装完屏幕上会打出订阅地址，复制进客户端就能用。
 
 以后再管理，输入：
 
@@ -176,6 +176,8 @@ dun route rm 2
 
 默认就是最抗封锁的配置：gecko 混淆、端口跳跃，参数每台机器随机，不用自己选。客户端要求 mihomo 1.19.34、sing-box 1.14 以上，老版本不认 gecko。云厂商的安全组记得放行 UDP。
 
+**v2rayNG 2.3.15** 导入 Hy2 链接时会使用 salamander，和 dun 默认的 gecko 对不上，握手会失败。这版可换用支持 gecko 的客户端。
+
 ## 伪装站
 
 别人直接打开你的节点域名，看到的是一个登录页。随便输账号密码，都会提示用户名或密码错误。每台机器的登录页长得都不一样，想换个样子，在「伪装站」里选「换一个登录页样式」。
@@ -198,7 +200,7 @@ dun route rm 2
 | 15 | 开 BBR |
 | 16 | IP 变了，同步解析 |
 | 17 | 更换节点域名，证书一起换 |
-| 18 | 换 CF 账号 |
+| 18 | 更换 Cloudflare 凭据 |
 | 20 | 全部卸载 |
 | 21 | 出站分流：WARP、导入落地代理、分流规则、其他流量走哪、测出口 |
 
@@ -208,9 +210,18 @@ dun route rm 2
 
 优先用 Reality 偷自己，直连，速度最好。AnyTLS 也是直连，换个协议换个特征，当备用。CF WS 走 Cloudflare 中转，速度一般，但 VPS 的 IP 被墙了它照样能用，属于保底。直接导入订阅，三个都有，客户端里切换最省心。
 
-**为什么要 Global API Key，安全吗？**
+**Cloudflare API Token 怎么配？**
 
-用 Global Key 是因为小白只要复制一串字符，不用自己建令牌、勾权限。代价是这把 Key 权限很大，能管你整个 CF 账号。dun 把它存在 VPS 的 `/etc/dun/cf.json`，只有 root 能读，续期证书要用，所以会一直留着，卸载时一起删掉。VPS 要是被人拿下，Key 也就跟着泄露了。介意的话，单独注册一个 CF 账号放节点用的域名。
+在 Cloudflare 的「用户 API 令牌」里创建自定义 Token。区域资源选「包含 → 特定区域」，只选节点用的域名。权限类别都选 Zone。
+
+| 安装内容 | 需要的权限 |
+| --- | --- |
+| Reality、AnyTLS 或 Hy2 | Zone → Read、DNS → Edit，用来选域名、写解析和完成证书的 DNS 验证 |
+| CF WS，包括菜单 4 的「三个一起装」 | 基础权限，再加 Origin Rules → Edit、Config Rules → Edit，分别用来设回源端口和子域名的 SSL 配置 |
+
+CF WS 还需要域名后台「网络」里的 WebSockets 开关处于开启状态。可以手动打开，Token 无需额外的 Zone Settings 编辑权限。
+
+选 Global API Key 时，输入登录邮箱和 Key。Key 在控制台右上角头像 → 设置 → API 凭据 → API 密钥。Global Key 可以管理整个账号。两种凭据都保存在 VPS 的 `/etc/dun/cf.json`，供后台续证和管理解析使用。原先用 Key 的安装会继续使用已保存的凭据，要换 Token 可用菜单 18。
 
 **会动我域名的哪些设置？**
 

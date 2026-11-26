@@ -15,8 +15,9 @@ import (
 const cfAPI = "https://api.cloudflare.com/client/v4"
 
 type CF struct {
-	Email string `json:"email"`
-	Key   string `json:"key"`
+	Email string `json:"email,omitempty"`
+	Key   string `json:"key,omitempty"`
+	Token string `json:"token,omitempty"`
 }
 
 type cfEnv struct {
@@ -27,6 +28,13 @@ type cfEnv struct {
 	} `json:"errors"`
 	Result json.RawMessage `json:"result"`
 }
+
+type cfAPIError struct {
+	status  int
+	message string
+}
+
+func (e *cfAPIError) Error() string { return e.message }
 
 var httpc = &http.Client{Timeout: 30 * time.Second}
 
@@ -39,8 +47,12 @@ func (c *CF) do(method, path string, body any, out any) error {
 		rd = bytes.NewReader(nil)
 	}
 	req, _ := http.NewRequest(method, cfAPI+path, rd)
-	req.Header.Set("X-Auth-Email", c.Email)
-	req.Header.Set("X-Auth-Key", c.Key)
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	} else {
+		req.Header.Set("X-Auth-Email", c.Email)
+		req.Header.Set("X-Auth-Key", c.Key)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpc.Do(req)
 	if err != nil {
@@ -59,7 +71,7 @@ func (c *CF) do(method, path string, body any, out any) error {
 		if len(ms) == 0 {
 			ms = append(ms, fmt.Sprintf("HTTP %d", resp.StatusCode))
 		}
-		return errors.New(strings.Join(ms, "; "))
+		return &cfAPIError{status: resp.StatusCode, message: strings.Join(ms, "; ")}
 	}
 	if out != nil && len(env.Result) > 0 {
 		return json.Unmarshal(env.Result, out)
@@ -67,7 +79,20 @@ func (c *CF) do(method, path string, body any, out any) error {
 	return nil
 }
 
-func (c *CF) Check() error { return c.do("GET", "/user", nil, nil) }
+func (c *CF) Check() error {
+	if c.Token == "" {
+		return c.do("GET", "/user", nil, nil)
+	}
+	// 直接查安装时需要的区域，域名级 Token 不需要读取用户资料。
+	zones, err := c.Zones()
+	if err != nil {
+		return err
+	}
+	if len(zones) == 0 {
+		return errors.New("Token 看不到已激活的域名，请检查指定域名和 Zone Read 权限")
+	}
+	return nil
+}
 
 type cfZone struct {
 	ID   string   `json:"id"`
@@ -109,12 +134,26 @@ func (c *CF) RulesGet(zid, phase string) ([]map[string]any, error) {
 	}
 	err := c.do("GET", "/zones/"+zid+"/rulesets/phases/"+phase+"/entrypoint", nil, &r)
 	if err != nil {
-		if strings.Contains(err.Error(), "10003") || strings.Contains(err.Error(), "not find") || strings.Contains(err.Error(), "HTTP 404") {
+		var apiErr *cfAPIError
+		if errors.As(err, &apiErr) && apiErr.status == http.StatusNotFound {
 			return nil, nil
 		}
 		return nil, err
 	}
 	return r.Rules, nil
+}
+
+// 先读两个规则集，避免只配了 DNS 的 Token 装到一半才报错。
+func (c *CF) checkWSRules(zid string) error {
+	for _, rule := range []struct{ phase, permission string }{
+		{"http_request_origin", "Origin Rules"},
+		{"http_config_settings", "Config Rules"},
+	} {
+		if _, err := c.RulesGet(zid, rule.phase); err != nil {
+			return fmt.Errorf("读取 CF WS 规则失败，请检查目标域名的 %s Edit 权限：%w", rule.permission, err)
+		}
+	}
+	return nil
 }
 
 func (c *CF) rulesEdit(zid, phase, desc string, add map[string]any) error {
@@ -171,7 +210,7 @@ func cfLoad() *CF {
 		return nil
 	}
 	c := &CF{}
-	if json.Unmarshal(b, c) != nil || c.Email == "" || c.Key == "" {
+	if json.Unmarshal(b, c) != nil || !c.valid() {
 		return nil
 	}
 	return c
@@ -188,22 +227,51 @@ func cfLogin() *CF {
 		}
 		warn("保存的 CF 账号验证不过了，重新输入一次")
 	}
-	fmt.Fprintln(os.Stderr)
-	info("需要 Cloudflare 账号邮箱和 Global API Key")
-	info("Key 在 CF 后台右上角头像 → 我的个人资料 → API 令牌 → Global API Key → 查看")
+	return cfPrompt(loadState())
+}
+
+func (c *CF) valid() bool {
+	return c.Token != "" || (c.Email != "" && c.Key != "")
+}
+
+func cfPrompt(st *State) *CF {
 	for {
-		c := &CF{Email: ask("CF 登录邮箱", ""), Key: askSecret("Global API Key（输入时不显示）")}
-		if c.Email == "" || c.Key == "" {
-			warn("不能为空")
+		info("选择 Cloudflare 凭据：1. 邮箱 + Global API Key   2. API Token")
+		c := &CF{}
+		if askInt("凭据类型", 1, 1, 2) == 2 {
+			info("创建自定义 Token，区域资源只包含节点域名。权限选 Zone → Zone → Read、Zone → DNS → Edit")
+			info("安装 CF WS 再加 Zone → Origin Rules → Edit 和 Zone → Config Rules → Edit")
+			c.Token = askSecret("API Token（输入时不显示）")
+		} else {
+			info("Global API Key 在 CF 后台右上角头像 → 设置 → API 凭据 → API 密钥")
+			c.Email = ask("CF 登录邮箱", "")
+			c.Key = askSecret("Global API Key（输入时不显示）")
+		}
+		if !c.valid() {
+			warn("凭据不能为空")
 			continue
 		}
 		if err := c.Check(); err != nil {
 			warn("验证失败：%v。再来一次（Ctrl+C 退出）", err)
 			continue
 		}
+		if st.Zone != nil && (st.TLS != nil || st.WS != nil) {
+			if _, err := c.DNSList(st.Zone.ID, st.Zone.Name); err != nil {
+				warn("新凭据无法访问现有域名 %s 的 DNS 记录：%v", st.Zone.Name, err)
+				continue
+			}
+			if st.WS != nil && c.Token != "" {
+				if err := c.checkWSRules(st.Zone.ID); err != nil {
+					warn("%v", err)
+					continue
+				}
+			}
+		}
 		b, _ := json.Marshal(c)
-		writeFileAtomic(cfPath, b, 0600)
-		ok("CF 账号验证通过")
+		if err := writeFileAtomic(cfPath, b, 0600); err != nil {
+			die("保存 Cloudflare 凭据失败：%v", err)
+		}
+		ok("Cloudflare 凭据已保存")
 		cfCur = c
 		return c
 	}

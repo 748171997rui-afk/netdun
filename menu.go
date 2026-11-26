@@ -83,7 +83,7 @@ func showLinks(st *State) {
 		if st.Hy2.HopStart > 0 {
 			b.WriteString(fmt.Sprintf("端口跳跃 %d-%d，订阅里已经带上\n", st.Hy2.HopStart, st.Hy2.HopEnd))
 		}
-		b.WriteString("要 mihomo 1.19.34、sing-box 1.14 以上的客户端，老版本不认 gecko\n")
+		b.WriteString(hy2ClientHint + "\n")
 		b.WriteString("\n")
 		qrs = append(qrs, l)
 	}
@@ -382,15 +382,10 @@ func syncIP(st *State) {
 }
 
 func changeCF(st *State) {
-	if st.TLS != nil || st.WS != nil {
-		warn("已装协议的解析在旧账号里，换账号只影响以后的操作；卸载前记得换回来")
-		if !confirm("继续？", false) {
-			return
-		}
+	if st.Zone != nil && (st.TLS != nil || st.WS != nil) {
+		info("新凭据需要能管理现有域名 %s", st.Zone.Name)
 	}
-	os.Remove(cfPath)
-	cfCur = nil
-	cfLogin()
+	cfPrompt(st)
 	if st.TLS == nil && st.WS == nil {
 		st.Zone = nil
 		st.save()
@@ -569,7 +564,7 @@ func menu(st *State) {
  15. 开启 BBR
  16. IP 变了：同步解析
  17. 更换节点域名
- 18. 更换 CF 账号
+ 18. 更换 Cloudflare 凭据
  19. 更新 dun
  20. 全部卸载
 ────────────────────────────────────────────
