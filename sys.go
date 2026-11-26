@@ -144,6 +144,10 @@ func servicesWritten() bool {
 
 func svcDo(action, name string) error {
 	if initSys == "systemd" {
+		if action == "restart" || action == "start" {
+			// 连着改几次配置会撞上 systemd 的启动频率限制（10 秒 5 次），撞上了服务就一直停着
+			run("systemctl", "reset-failed", name)
+		}
 		return run("systemctl", action, name)
 	}
 	return run("rc-service", name, action)
@@ -286,6 +290,9 @@ func (s *State) usedPorts(skip string) map[int]string {
 		if skip != "ws" {
 			m[s.WS.Port] = "ws"
 		}
+	}
+	if s.TestPort > 0 {
+		m[s.TestPort] = "test"
 	}
 	return m
 }

@@ -455,6 +455,9 @@ func uninstallAll(st *State) {
 	if st.Reality != nil {
 		removeReality(st)
 	}
+	for _, o := range st.Outbounds {
+		warpUnregister(o)
+	}
 	for _, s := range []string{svcBox, svcWeb} {
 		svcDisable(s)
 		os.Remove("/etc/systemd/system/" + s + ".service")
@@ -513,6 +516,20 @@ func statusLine(st *State) {
 		}
 		fmt.Printf("  伪装站: %s\n", d)
 	}
+	if len(st.Outbounds) > 0 || len(st.Rules) > 0 {
+		var ns []string
+		for i, o := range st.Outbounds {
+			if i == 3 {
+				ns = append(ns, fmt.Sprintf("等 %d 个", len(st.Outbounds)))
+				break
+			}
+			ns = append(ns, o.Name)
+		}
+		if len(ns) == 0 {
+			ns = []string{"无"}
+		}
+		fmt.Printf("  出站分流: 出站 %s，%d 条规则，其他流量 → %s\n", strings.Join(ns, "、"), len(st.Rules), outLabel(finalOut(st)))
+	}
 }
 
 func menu(st *State) {
@@ -542,6 +559,8 @@ func menu(st *State) {
  18. 更换 CF 账号
  19. 更新 dun
  20. 全部卸载
+────────────────────────────────────────────
+ 21. 出站分流：WARP、落地代理
   0. 退出
 `)
 		switch ask("请选择", "") {
@@ -593,6 +612,9 @@ func menu(st *State) {
 			updateSelf()
 		case "20":
 			uninstallAll(st)
+		case "21":
+			routeMenu(st)
+			continue
 		case "0", "q":
 			return
 		default:

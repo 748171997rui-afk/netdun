@@ -19,6 +19,7 @@ const (
 	linksPath   = baseDir + "/links.txt"
 	customPath  = baseDir + "/cfip.txt"
 	wetestPath  = baseDir + "/cfip-wetest.json"
+	rulesDir    = baseDir + "/rules"
 	selfPath    = "/usr/local/bin/dun"
 	svcBox      = "dun-sb"
 	svcWeb      = "dun"
@@ -105,19 +106,50 @@ type CFIPOpt struct {
 	V6        bool `json:"v6,omitempty"`
 }
 
+// 出站：WARP 或者导入的链接。Config 是 sing-box 的出站配置，WireGuard 放在 endpoints，都不带 tag
+type Outbound struct {
+	Name     string         `json:"name"`
+	Kind     string         `json:"kind"`
+	Server   string         `json:"server,omitempty"`
+	Endpoint bool           `json:"endpoint,omitempty"`
+	Config   map[string]any `json:"config"`
+	Warp     *WarpAcct      `json:"warp,omitempty"`
+}
+
+type WarpAcct struct {
+	ID      string `json:"id"`
+	Token   string `json:"token"`
+	Type    string `json:"type,omitempty"` // free / limited（WARP+）/ unlimited
+	License string `json:"license,omitempty"`
+	Peer4   string `json:"peer4,omitempty"` // 注册时分到的入口
+	Peer6   string `json:"peer6,omitempty"`
+}
+
+// 分流规则：Items 是规范化后的条目，比如 geosite:openai、claude.ai、tiktok
+type Rule struct {
+	Out   string   `json:"out"` // 出站名；direct 直连，block 拦截
+	Items []string `json:"items"`
+	Label string   `json:"label,omitempty"` // 预设的名字，自己填的为空
+}
+
 type State struct {
-	IP4      string   `json:"ip4,omitempty"`
-	IP6      string   `json:"ip6,omitempty"`
-	NAT      bool     `json:"nat,omitempty"`
-	Zone     *Zone    `json:"zone,omitempty"`
-	TLS      *TLSHost `json:"tls,omitempty"`
-	Reality  *Reality `json:"reality,omitempty"`
-	AnyTLS   *AnyTLS  `json:"anytls,omitempty"`
-	WS       *WS      `json:"ws,omitempty"`
-	Hy2      *Hy2     `json:"hy2,omitempty"`
-	Disguise Disguise `json:"disguise"`
-	Token    string   `json:"token,omitempty"`
-	CFIP     CFIPOpt  `json:"cfip"`
+	IP4       string      `json:"ip4,omitempty"`
+	IP6       string      `json:"ip6,omitempty"`
+	NAT       bool        `json:"nat,omitempty"`
+	Zone      *Zone       `json:"zone,omitempty"`
+	TLS       *TLSHost    `json:"tls,omitempty"`
+	Reality   *Reality    `json:"reality,omitempty"`
+	AnyTLS    *AnyTLS     `json:"anytls,omitempty"`
+	WS        *WS         `json:"ws,omitempty"`
+	Hy2       *Hy2        `json:"hy2,omitempty"`
+	Disguise  Disguise    `json:"disguise"`
+	Token     string      `json:"token,omitempty"`
+	CFIP      CFIPOpt     `json:"cfip"`
+	Outbounds []*Outbound `json:"outbounds,omitempty"`
+	Rules     []*Rule     `json:"rules,omitempty"`
+	Final     string      `json:"final,omitempty"`     // 没匹配到规则的流量走哪，空 = 直连
+	TestPort  int         `json:"test_port,omitempty"` // 本机测试出站用的入口
+	TestPass  string      `json:"test_pass,omitempty"`
 }
 
 func loadState() *State {

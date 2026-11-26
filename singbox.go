@@ -143,22 +143,79 @@ func sbConfig(st *State) (map[string]any, int) {
 			"transport": map[string]any{"type": "ws", "path": w.Path},
 		})
 	}
-	return map[string]any{
+	n := len(inb)
+	// 服务端只拦两样：BT（商家看到会封机）和访问内网地址
+	rules := []any{
+		map[string]any{"action": "sniff"},
+		map[string]any{"protocol": "bittorrent", "action": "reject"},
+		map[string]any{"ip_is_private": true, "action": "reject"},
+	}
+	outs := []any{map[string]any{"type": "direct", "tag": "direct"}}
+	var eps []any
+	for _, o := range st.Outbounds {
+		c := cloneMap(o.Config)
+		c["tag"] = o.Name
+		if o.Endpoint {
+			eps = append(eps, c)
+		} else {
+			outs = append(outs, c)
+		}
+	}
+	// 本机测试入口：dun 测出站时走正在跑的 sing-box，用户名决定走哪个出站
+	if len(st.Outbounds) > 0 && st.TestPort > 0 {
+		var users []any
+		for _, o := range st.Outbounds {
+			u := testUser(o.Name)
+			users = append(users, map[string]any{"username": u, "password": st.TestPass})
+			rules = append(rules, map[string]any{"inbound": []string{testTag}, "auth_user": []string{u}, "outbound": o.Name})
+		}
+		inb = append(inb, map[string]any{"type": "mixed", "tag": testTag, "listen": "127.0.0.1",
+			"listen_port": st.TestPort, "users": users})
+	}
+	rr, sets := routeRules(st)
+	route := map[string]any{"rules": append(rules, rr...)}
+	if len(sets) > 0 {
+		route["rule_set"] = sets
+	}
+	if len(st.Outbounds) > 0 || len(st.Rules) > 0 {
+		route["final"] = finalOut(st)
+	}
+	cfg := map[string]any{
 		"log":       map[string]any{"level": "warn", "timestamp": true},
 		"inbounds":  inb,
-		"outbounds": []any{map[string]any{"type": "direct", "tag": "direct"}},
-		// 服务端只拦两样：BT（商家看到会封机）和访问内网地址
-		"route": map[string]any{"rules": []any{
-			map[string]any{"action": "sniff"},
-			map[string]any{"protocol": "bittorrent", "action": "reject"},
-			map[string]any{"ip_is_private": true, "action": "reject"},
-		}},
-	}, len(inb)
+		"outbounds": outs,
+		"route":     route,
+	}
+	if len(eps) > 0 {
+		cfg["endpoints"] = eps
+	}
+	return cfg, n
+}
+
+// 出站和规则是用户填的：先在临时文件上检查，过了才能保存、重启
+func tryConfig(st *State) error {
+	if err := ensureRuleSets(st); err != nil {
+		return fmt.Errorf("规则集下载失败：%v", err)
+	}
+	cfg, _ := sbConfig(st)
+	b, _ := json.MarshalIndent(cfg, "", "  ")
+	tmp := sbConf + ".try"
+	if err := os.WriteFile(tmp, b, 0600); err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	if out, err := runOut(sbBin, "check", "-c", tmp); err != nil {
+		return fmt.Errorf("sing-box 配置检查不通过：%s", sbErr(out))
+	}
+	return nil
 }
 
 // 先 check 再替换，检查不过旧配置不动
 func applyAll(st *State) {
 	st.save()
+	if err := ensureRuleSets(st); err != nil {
+		warn("规则集下载失败：%v", err)
+	}
 	cfg, n := sbConfig(st)
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	if n == 0 {
@@ -175,6 +232,7 @@ func applyAll(st *State) {
 		svcEnable(svcBox)
 		svcDo("restart", svcBox)
 	}
+	cleanRuleSets(st)
 	hopApply(st)
 	if st.installed() {
 		svcEnable(svcWeb)

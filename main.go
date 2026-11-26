@@ -30,6 +30,16 @@ func usage() {
   dun syncip                   IP 变了以后同步解析
   dun rehost                   更换节点域名（证书一起换）
   dun uninstall                全部卸载
+
+出站分流（服务端）：
+  dun warp [WARP+授权码]       添加 WARP 出站，已有就测一下
+  dun out add <链接> [名字]    导入出站：vless/vmess/trojan/ss/hy2/tuic/anytls/wireguard/socks5/http 链接，
+                               IP:端口:用户:密码，sing-box JSON，WireGuard 配置文件路径
+  dun out ls|test [名字]|rm <名字>
+  dun route add <出站|direct|block> <规则>
+                               规则逗号分隔：geosite:openai,claude.ai,tiktok；也可以写预设名 ai、stream
+  dun route ls|rm <序号>|presets
+  dun route final <出站|direct>  没匹配到规则的流量走哪
 `, version)
 }
 
@@ -99,12 +109,16 @@ func firstSetup() *State {
 			svcDo("restart", svcWeb)
 		}
 	}
-	// 升级 dun 以后配置格式可能变了，对不上就按新版本重新生成
+	// 升级 dun 以后配置格式可能变了，对不上就按新版本重新生成；检查不过就先用旧的，别把命令行卡死
 	if cfg, n := sbConfig(st); n > 0 {
 		want, _ := json.MarshalIndent(cfg, "", "  ")
 		if cur, _ := os.ReadFile(sbConf); !bytes.Equal(cur, want) {
-			applyAll(st)
-			ok("配置已按 dun %s 更新", version)
+			if err := tryConfig(st); err != nil {
+				warn("新配置用不了，先保持现在的：%v", err)
+			} else {
+				applyAll(st)
+				ok("配置已按 dun %s 更新", version)
+			}
 		}
 	}
 	return st
@@ -216,6 +230,12 @@ func main() {
 		changeNodeHost(st)
 	case "uninstall":
 		uninstallAll(st)
+	case "warp":
+		warpCmd(st, args[1:])
+	case "out", "outbound":
+		outCmd(st, args[1:])
+	case "route", "rule":
+		routeCmd(st, args[1:])
 	default:
 		usage()
 		os.Exit(1)

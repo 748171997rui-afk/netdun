@@ -209,6 +209,7 @@ func serve() {
 		go wetestLoop()
 	}
 	go renewLoop()
+	go rulesLoop()
 	log.Printf("dun %s 已启动", version)
 	if st.Reality == nil && st.WS == nil {
 		select {}
@@ -248,5 +249,34 @@ func renewLoop() {
 			}
 		}
 		time.Sleep(12 * time.Hour)
+	}
+}
+
+// 分流用的规则集每天更新；文件被删了也补回来，sing-box 因为缺文件没起来就拉一把
+func rulesLoop() {
+	time.Sleep(10 * time.Second)
+	for {
+		st := loadState()
+		if sets := usedSets(st); len(sets) > 0 {
+			missing := false
+			for _, s := range sets {
+				if !exists(ruleFile(s[0], s[1])) {
+					missing = true
+				}
+			}
+			if missing {
+				if err := ensureRuleSets(st); err != nil {
+					log.Printf("规则集下载失败: %v", err)
+				} else if st.installed() && !svcActive(svcBox) {
+					svcDo("restart", svcBox)
+				}
+			}
+			if n, err := refreshRuleSets(st, 20*time.Hour); err != nil {
+				log.Printf("规则集更新失败: %v", err)
+			} else if n > 0 {
+				log.Printf("规则集已更新 %d 个", n)
+			}
+		}
+		time.Sleep(6 * time.Hour)
 	}
 }

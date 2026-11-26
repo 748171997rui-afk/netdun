@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -108,4 +111,43 @@ func choose(items []string, def int) int {
 func pause() {
 	fmt.Fprint(os.Stderr, "按回车继续...")
 	in.ReadString('\n')
+}
+
+// 终端里还有没读的输入：粘贴的内容会分好几行、好几批到
+func moreInput(d time.Duration) bool {
+	if in.Buffered() > 0 {
+		return true
+	}
+	f := ttyFile
+	if f == nil {
+		f = os.Stdin
+	}
+	fds := []unix.PollFd{{Fd: int32(f.Fd()), Events: unix.POLLIN}}
+	n, err := unix.Poll(fds, int(d.Milliseconds()))
+	return err == nil && n > 0
+}
+
+// 粘贴多行：好几条链接、JSON、WireGuard 配置一次读完，免得剩下的行被后面的提问吃掉
+func askPaste(prompt string) string {
+	fmt.Fprintf(os.Stderr, "%s: ", prompt)
+	var b strings.Builder
+	for {
+		l, err := in.ReadString('\n')
+		b.WriteString(l)
+		if err != nil {
+			break
+		}
+		if moreInput(200 * time.Millisecond) {
+			continue
+		}
+		// JSON 没粘完整、WireGuard 配置还没到 [Peer]，继续等，空行结束
+		t := strings.TrimSpace(b.String())
+		lt := strings.ToLower(t)
+		if strings.TrimSpace(l) != "" && ((strings.HasPrefix(t, "{") && !json.Valid([]byte(t))) ||
+			(strings.HasPrefix(lt, "[interface]") && !strings.Contains(lt, "endpoint"))) {
+			continue
+		}
+		break
+	}
+	return strings.TrimSpace(b.String())
 }
