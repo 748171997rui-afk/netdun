@@ -122,19 +122,16 @@ func siteHandler(st *State, ws bool) http.Handler {
 		subV, subC = "/"+st.Token+"/sub", "/"+st.Token+"/clash"
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// CF WS 的回源端口只回应 Cloudflare，别人直连就当没开过：直接断开，不回任何内容
-		if ws {
-			host, _, _ := net.SplitHostPort(r.RemoteAddr)
-			if !isCFIP(host) {
-				if hj, ok := w.(http.Hijacker); ok {
-					if c, _, err := hj.Hijack(); err == nil {
-						c.Close()
-						return
-					}
+		// CF WS 的回源端口只回应 Cloudflare（含容器/NAT 转发进来的 CF 流量），别人直连直接断开
+		if ws && !allowWSRequest(r) {
+			if hj, ok := w.(http.Hijacker); ok {
+				if c, _, err := hj.Hijack(); err == nil {
+					c.Close()
+					return
 				}
-				w.WriteHeader(http.StatusNotFound)
-				return
 			}
+			w.WriteHeader(http.StatusNotFound)
+			return
 		}
 		p := r.URL.Path
 		switch {
@@ -148,6 +145,41 @@ func siteHandler(st *State, ws bool) http.Handler {
 			dis.ServeHTTP(w, r)
 		}
 	})
+}
+
+var cgnatNet = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("100.64.0.0/10")
+	return n
+}()
+
+// 判断是否允许访问 CF WS 回源端口：
+// 1. 来源是 Cloudflare 官方 IP 段，直接放行；
+// 2. 来源是容器/NAT/反代的私网、CGNAT 或链路本地地址，且带有 CF-Ray 请求头，放行；
+// 3. 本机环回地址直接放行（便于本机 curl 排查）；
+// 4. 特殊公网中转环境可设环境变量 DUN_WS_TRUST_CF_HEADER=1 配合 CF-Ray 放行。
+func allowWSRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if isCFIP(host) {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	hasCFRay := r.Header.Get("CF-Ray") != ""
+	if hasCFRay && (ip.IsPrivate() || ip.IsLinkLocalUnicast() || cgnatNet.Contains(ip)) {
+		return true
+	}
+	if hasCFRay && os.Getenv("DUN_WS_TRUST_CF_HEADER") == "1" {
+		return true
+	}
+	return false
 }
 
 // 每次请求现读状态，改了优选设置不用重启

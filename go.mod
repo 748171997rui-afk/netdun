@@ -1,4 +1,4 @@
-module github.com/byJoey/dun
+module github.com/748171997rui-afk/netdun
 
 go 1.26.0
 

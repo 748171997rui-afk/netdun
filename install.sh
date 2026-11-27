@@ -7,7 +7,7 @@ case "$(uname -m)" in
     aarch64|arm64) arch=arm64 ;;
     *) echo "暂不支持 $(uname -m)"; exit 1 ;;
 esac
-url="https://github.com/byJoey/dun/releases/latest/download/dun-linux-$arch"
+url="https://github.com/748171997rui-afk/netdun/releases/latest/download/dun-linux-$arch"
 echo "下载 dun ($arch)"
 mkdir -p /usr/local/bin
 if command -v curl >/dev/null 2>&1; then
